@@ -10,7 +10,7 @@
 #include <sensor_msgs/PointCloud2.h>
 
 // Read KITTI data
-std::vector<float> read_lidar_data(const std::string lidar_data_path) {
+std::vector<float> read_lidar_data(const std::string lidar_data_path) {//lidar_file中每个数据大小float  读取点云二进制文件
   std::ifstream lidar_data_file;
   lidar_data_file.open(lidar_data_path,
                        std::ifstream::in | std::ifstream::binary);
@@ -19,8 +19,8 @@ std::vector<float> read_lidar_data(const std::string lidar_data_path) {
     std::vector<float> nan_data;
     return nan_data;
   }
-  lidar_data_file.seekg(0, std::ios::end);
-  const size_t num_elements = lidar_data_file.tellg() / sizeof(float);
+  lidar_data_file.seekg(0, std::ios::end);                            //移动指针到文件末尾
+  const size_t num_elements = lidar_data_file.tellg() / sizeof(float);//tellg()在读取文件内容后获取当前读指针的位置。seekg()设置文件指针的位置，然后使用tellg获取当前的位置，用于定位和文件大小的计算。
   lidar_data_file.seekg(0, std::ios::beg);
 
   std::vector<float> lidar_data_buffer(num_elements);
@@ -58,13 +58,14 @@ int main(int argc, char **argv) {
   ros::Publisher pubOdomCorreted =
       nh.advertise<nav_msgs::Odometry>("/odom_corrected", 10);
 
-  ros::Rate loop(500);
-  ros::Rate slow_loop(100);
-  std::vector<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> poses_vec;
-  std::vector<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> key_poses_vec;
+  ros::Rate loop(500);        //500Hz,0.002s=2ms
+  ros::Rate slow_loop(100);   //100Hz,0.01s=10ms
+  std::vector<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> poses_vec;       //猜测：雷达帧的P/R
+  std::vector<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> key_poses_vec;   //关键帧的P/R
 
+  //加载pose，读取数据到poses_vec和times_vec
   std::vector<double> times_vec;
-  load_pose_with_time(pose_path, poses_vec, times_vec);
+  load_pose_with_time(pose_path, poses_vec, times_vec);                     //读取pose文件
   std::cout << "Sucessfully load pose with number: " << poses_vec.size()
             << std::endl;
   std::vector<pcl::PointCloud<pcl::PointXYZI>::Ptr> cloud_vec;
@@ -85,50 +86,51 @@ int main(int argc, char **argv) {
   robustLoopNoise = gtsam::noiseModel::Robust::Create(
       gtsam::noiseModel::mEstimator::Cauchy::Create(1),
       gtsam::noiseModel::Diagonal::Variances(robustNoiseVector6));
-  size_t cloudInd = 0;
+  size_t cloudInd = 0;      //点云帧索引
   size_t keyCloudInd = 0;
   pcl::PointCloud<pcl::PointXYZI>::Ptr temp_cloud(
       new pcl::PointCloud<pcl::PointXYZI>());
 
+  //加载lidar，保存数据到lidar_data
   std::vector<double> descriptor_time;
   std::vector<double> querying_time;
   std::vector<double> update_time;
   int triggle_loop_num = 0;
-  while (ros::ok()) {
+  while (ros::ok()) {//猜测：每一帧雷达一循环
     std::stringstream lidar_data_path;
     lidar_data_path << lidar_path << std::setfill('0') << std::setw(6)
                     << cloudInd << ".bin";
-    std::vector<float> lidar_data = read_lidar_data(lidar_data_path.str());
+    std::vector<float> lidar_data = read_lidar_data(lidar_data_path.str());     //读取lidar文件，一帧lidar点云
     if (lidar_data.size() == 0) {
       break;
     }
     pcl::PointCloud<pcl::PointXYZI>::Ptr current_cloud(
         new pcl::PointCloud<pcl::PointXYZI>());
-    Eigen::Vector3d translation = poses_vec[cloudInd].first;
+    Eigen::Vector3d translation = poses_vec[cloudInd].first;    //lidar和pose的帧率是一样的，录制的数据起始时间也是一样的吗，为什么可以用lidar的索引找出pose的位姿？？？
     Eigen::Matrix3d rotation = poses_vec[cloudInd].second;
-    for (std::size_t i = 0; i < lidar_data.size(); i += 4) {
+    for (std::size_t i = 0; i < lidar_data.size(); i += 4) {  //猜测：读取的lidar文件内数字是xyzi、xyzi、……排列
       pcl::PointXYZI point;
       point.x = lidar_data[i];
       point.y = lidar_data[i + 1];
       point.z = lidar_data[i + 2];
-      point.intensity = lidar_data[i + 3];
-      Eigen::Vector3d pv = point2vec(point);
-      pv = rotation * pv + translation;
+      point.intensity = lidar_data[i + 3];  //多余
+      Eigen::Vector3d pv = point2vec(point);  //pv是Vector3d(x,y,z)
+      pv = rotation * pv + translation;//用cloudInd索引出的poses_vec的旋转和平移处理lidar_data中的位置
       point = vec2point(pv);
       point.intensity = lidar_data[i + 3];
       current_cloud->push_back(point);
     }
-    down_sampling_voxel(*current_cloud, config_setting.ds_size_);
-    cloud_vec.push_back(current_cloud);
-    for (auto pv : current_cloud->points) {
+    down_sampling_voxel(*current_cloud, config_setting.ds_size_);   //降采样0.25，current_cloud返回降采样后的点云，取体素内xyzi的平均值
+    cloud_vec.push_back(current_cloud); //cloud_vec保存每一帧雷达的体素点个数
+    for (auto pv : current_cloud->points) {   //temp_cloud和current_cloud一样
       temp_cloud->points.push_back(pv);
     }
 
     // check if keyframe
-    if (cloudInd % config_setting.sub_frame_num_ == 0 && cloudInd != 0) {
+    if (cloudInd % config_setting.sub_frame_num_ == 0 && cloudInd != 0) {//10帧一个关键帧
       // use first frame's pose as key pose
       key_poses_vec.push_back(
-          poses_vec[cloudInd - config_setting.sub_frame_num_]);
+          poses_vec[cloudInd - config_setting.sub_frame_num_]);//？？？cloudInd-10
       std::cout << "Key Frame id:" << keyCloudInd
                 << ", cloud size: " << temp_cloud->size() << std::endl;
       // step1. Descriptor Extraction

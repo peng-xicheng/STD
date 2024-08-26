@@ -56,7 +56,7 @@ typedef struct ConfigSetting {
   double normal_threshold_ = 0.1;
   double dis_threshold_ = 0.3;
 
-} ConfigSetting;
+} ConfigSetting;//配置项
 
 // Structure for Stabel Triangle Descriptor
 typedef struct STDesc {
@@ -81,12 +81,12 @@ typedef struct STDesc {
 // plane structure for corner point extraction
 typedef struct Plane {
   pcl::PointXYZINormal p_center_;
-  Eigen::Vector3d center_;
-  Eigen::Vector3d normal_;
-  Eigen::Matrix3d covariance_;
+  Eigen::Vector3d center_;      //所属八叉树（一个2大小体素）中所有点的均值位置
+  Eigen::Vector3d normal_;      //法向量
+  Eigen::Matrix3d covariance_;  //所属八叉树（一个2大小体素）中所有点的协方差
   float radius_ = 0;
   float min_eigen_value_ = 1;
-  float intercept_ = 0;
+  float intercept_ = 0;         //？？？
   int id_ = 0;
   int sub_plane_num_ = 0;
   int points_size_ = 0;
@@ -98,7 +98,9 @@ typedef struct STDMatchList {
   std::pair<int, int> match_id_;
   double mean_dis_;
 } STDMatchList;
-
+/**
+ * @brief 体素的索引位置，负数索引-1
+ */
 class VOXEL_LOC {
 public:
   int64_t x, y, z;
@@ -111,16 +113,19 @@ public:
   }
 };
 
+/**
+ * @brief 猜测：体素内所有点的和
+ */
 // for down sample function
 struct M_POINT {
-  float xyz[3];
-  float intensity;
-  int count = 0;
+  float xyz[3];     //体素内所有点的和
+  float intensity;  //体素内intensity和
+  int count = 0;    //体素内点数量
 };
 
 // Hash value
 
-template <> struct std::hash<VOXEL_LOC> {
+template <> struct std::hash<VOXEL_LOC> {//习俗哈希值
   int64_t operator()(const VOXEL_LOC &s) const {
     using std::hash;
     using std::size_t;
@@ -130,7 +135,7 @@ template <> struct std::hash<VOXEL_LOC> {
 
 class STDesc_LOC {
 public:
-  int64_t x, y, z, a, b, c;
+  int64_t x, y, z, a, b, c;//xyz边、abc角
 
   STDesc_LOC(int64_t vx = 0, int64_t vy = 0, int64_t vz = 0, int64_t va = 0,
              int64_t vb = 0, int64_t vc = 0)
@@ -145,7 +150,7 @@ public:
   }
 };
 
-template <> struct std::hash<STDesc_LOC> {
+template <> struct std::hash<STDesc_LOC> {//三角描述符哈希
   int64_t operator()(const STDesc_LOC &s) const {
     using std::hash;
     using std::size_t;
@@ -165,10 +170,10 @@ template <> struct std::hash<STDesc_LOC> {
 };
 
 // OctoTree structure for plane detection
-class OctoTree {
+class OctoTree {//八叉树
 public:
   ConfigSetting config_setting_;
-  std::vector<Eigen::Vector3d> voxel_points_;
+  std::vector<Eigen::Vector3d> voxel_points_;   //体素中的点坐标
   Plane *plane_ptr_;
   int layer_;
   int octo_state_; // 0 is end of tree, 1 is not
@@ -177,8 +182,8 @@ public:
   std::vector<Eigen::Vector3d> proj_normal_vec_;
 
   // check 6 direction: x,y,z,-x,-y,-z
-  bool is_check_connect_[6];
-  bool connect_[6];
+  bool is_check_connect_[6];      //八叉树6个方向的某个方向的相邻体素已经检查
+  bool connect_[6];               //八叉树6个方向的某个方向的相邻体素是否是同一平面
   OctoTree *connect_tree_[6];
 
   bool is_publish_ = false;

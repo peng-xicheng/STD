@@ -13,8 +13,8 @@
 		name="pgo_demo" 
 		output="screen" 
 	/>
-  <param name="lidar_path" type="string" value = "/usb/kitti/sequences/00/velodyne/"/>
-  <param name="pose_path" type="string" value = "/usb2/kitti_bags/lio_pose/kitti00_pose_lio.txt"/>
+  <param name="lidar_path" type="string" value = "/media/pcl/定位2/STDesc_dataset/KITTI_dataset/velodyne/"/>
+  <param name="pose_path" type="string" value = "/media/pcl/定位2/STDesc_dataset/KITTI_dataset/KITTI_poses_LO/kitti00_pose_lio.txt"/>
 
 
 

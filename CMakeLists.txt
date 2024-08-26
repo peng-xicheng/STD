@@ -42,7 +42,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(OpenMP QUIET)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
-find_package(PCL REQUIRED)
+# find_package(PCL REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED QUIET)
 
@@ -55,11 +55,13 @@ catkin_package(
  CATKIN_DEPENDS roscpp rospy std_msgs
 )
 
-include_directories(
+include_directories(        #设置包含的目录
   ${catkin_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
+  # ${PCL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
 )
+link_directories(/usr/lib/x86_64-linux-gnu)       #设置链接库搜索目录
+# link_directories(/usr/local/lib /usr/lib/x86_64-linux-gnu)
 
 add_executable(place_recognition_kitti demo/place_recognition_kitti.cpp src/STDesc.cpp )
 target_link_libraries(place_recognition_kitti 

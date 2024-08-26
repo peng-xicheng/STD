@@ -1,4 +1,9 @@
 #include "include/STDesc.h"
+/**
+ * @brief 降采样
+ * @param pl_feat 传入原始点云，传出降采样后体素内平均点位置和反射强度
+ * @param voxel_size 0.5
+ */
 void down_sampling_voxel(pcl::PointCloud<pcl::PointXYZI> &pl_feat,
                          double voxel_size) {
   int intensity = rand() % 255;
@@ -12,7 +17,7 @@ void down_sampling_voxel(pcl::PointCloud<pcl::PointXYZI> &pl_feat,
     pcl::PointXYZI &p_c = pl_feat[i];
     float loc_xyz[3];
     for (int j = 0; j < 3; j++) {
-      loc_xyz[j] = p_c.data[j] / voxel_size;
+      loc_xyz[j] = p_c.data[j] / voxel_size;//loc_xyz保存的是xyz分贝除以体素大小的值，即体素的索引
       if (loc_xyz[j] < 0) {
         loc_xyz[j] -= 1.0;
       }
@@ -37,7 +42,7 @@ void down_sampling_voxel(pcl::PointCloud<pcl::PointXYZI> &pl_feat,
       voxel_map[position] = anp;
     }
   }
-  plsize = voxel_map.size();
+  plsize = voxel_map.size();  //体素个数
   pl_feat.clear();
   pl_feat.resize(plsize);
 
@@ -107,7 +112,7 @@ void read_parameters(ros::NodeHandle &nh, ConfigSetting &config_setting) {
 }
 
 void load_pose_with_time(
-    const std::string &pose_file,
+    const std::string &pose_file,//格式，一行8个数字，第一个是时间戳，然后是xyz,xyzw
     std::vector<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> &poses_vec,
     std::vector<double> &times_vec) {
   times_vec.clear();
@@ -119,7 +124,7 @@ void load_pose_with_time(
     std::istringstream sin(line);
     std::vector<std::string> Waypoints;
     std::string info;
-    int number = 0;
+    int number = 0;   //遍历一行8个数字
     while (getline(sin, info, ' ')) {
       if (number == 0) {
         double time;
@@ -305,16 +310,21 @@ void publish_std_pairs(
   ma_line.markers.clear();
 }
 
+/**
+ * @brief 
+ * @param input_cloud 降采样后的点云
+ * @param stds_vec  返回稳定三角描述符
+ */
 void STDescManager::GenerateSTDescs(
     pcl::PointCloud<pcl::PointXYZI>::Ptr &input_cloud,
     std::vector<STDesc> &stds_vec) {
 
   // step1, voxelization and plane dection
-  std::unordered_map<VOXEL_LOC, OctoTree *> voxel_map;
-  init_voxel_map(input_cloud, voxel_map);
-  pcl::PointCloud<pcl::PointXYZINormal>::Ptr plane_cloud(
+  std::unordered_map<VOXEL_LOC, OctoTree *> voxel_map;        //(体素位置索引，八叉树)  一个体素对应一个八叉树
+  init_voxel_map(input_cloud, voxel_map);                     //初始化体素地图->初始化八叉树->初始化平面
+  pcl::PointCloud<pcl::PointXYZINormal>::Ptr plane_cloud(     //PointXYZNormal:xyz、intensity、normal_x/y/z法向量在xyz的分量  plane_cloud:保存所有体素有平面的平面中心点坐标和法向量分量
       new pcl::PointCloud<pcl::PointXYZINormal>);
-  getPlane(voxel_map, plane_cloud);
+  getPlane(voxel_map, plane_cloud);//保存一帧点云中（猜测）所有有平面的体素中的平面的中心点和法向量分量
   // std::cout << "[Description] planes size:" << plane_cloud->size() <<
   // std::endl;
   plane_cloud_vec_.push_back(plane_cloud);
@@ -419,38 +429,43 @@ void STDescManager::AddSTDescs(const std::vector<STDesc> &stds_vec) {
   return;
 }
 
+/**
+ * @brief 初始化体素地图    猜测：从点云生成体素地图（筛选原始点云，放入对应体素位置的八叉树的成员变量体素点集中）
+ * @param input_cloud 降采样后的点云
+ * @param voxel_map   <VOXEL_LOC, OctoTree *>传入是空的，保存值返回
+ */
 void STDescManager::init_voxel_map(
     const pcl::PointCloud<pcl::PointXYZI>::Ptr &input_cloud,
-    std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map) {
+    std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map) {//一个体素索引位置对应一个八叉树，八叉树保存该2体素索引位置的所有0.25降采样的点xyz
   uint plsize = input_cloud->size();
   for (uint i = 0; i < plsize; i++) {
     Eigen::Vector3d p_c(input_cloud->points[i].x, input_cloud->points[i].y,
                         input_cloud->points[i].z);
     double loc_xyz[3];
     for (int j = 0; j < 3; j++) {
-      loc_xyz[j] = p_c[j] / config_setting_.voxel_size_;
+      loc_xyz[j] = p_c[j] / config_setting_.voxel_size_;  //voxel_size_=2   //猜测： 点云坐标除以体素大小=个数，猜测表示体素中的索引
       if (loc_xyz[j] < 0) {
         loc_xyz[j] -= 1.0;
       }
     }
-    VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1],
+    VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1],    //降采样后的体素索引、体素坐标
                        (int64_t)loc_xyz[2]);
     auto iter = voxel_map.find(position);
     if (iter != voxel_map.end()) {
-      voxel_map[position]->voxel_points_.push_back(p_c);
-    } else {
+      voxel_map[position]->voxel_points_.push_back(p_c);//往体素索引中放入Vector3D点
+    } else {//体素位置处不存在八叉树，新建八叉树
       OctoTree *octo_tree = new OctoTree(config_setting_);
       voxel_map[position] = octo_tree;
       voxel_map[position]->voxel_points_.push_back(p_c);
     }
   }
-  std::vector<std::unordered_map<VOXEL_LOC, OctoTree *>::iterator> iter_list;
+  std::vector<std::unordered_map<VOXEL_LOC, OctoTree *>::iterator> iter_list;//存储迭代器的数组？？？
   std::vector<size_t> index;
   size_t i = 0;
   for (auto iter = voxel_map.begin(); iter != voxel_map.end(); ++iter) {
-    index.push_back(i);
+    index.push_back(i);         //index保存voxel_map中所有索引
     i++;
-    iter_list.push_back(iter);
+    iter_list.push_back(iter);  //iter_list保存voxel_map中所有元素的迭代器
   }
   // speed up initialization
   // #ifdef MP_EN
@@ -459,7 +474,7 @@ void STDescManager::init_voxel_map(
   // #pragma omp parallel for
   // #endif
   for (int i = 0; i < index.size(); i++) {
-    iter_list[i]->second->init_octo_tree();
+    iter_list[i]->second->init_octo_tree();   //对voxel_map中每个八叉树进行八叉树初始化
   }
   // std::cout << "voxel num:" << index.size() << std::endl;
   // std::for_each(
@@ -467,12 +482,16 @@ void STDescManager::init_voxel_map(
   //     [&](const size_t &i) { iter_list[i]->second->init_octo_tree(); });
 }
 
+/**
+ * @brief 猜测：构建体素地图中平面的关联关系，即相邻体素递推检查
+ * @param voxel_map
+ */
 void STDescManager::build_connection(
     std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map) {
   for (auto iter = voxel_map.begin(); iter != voxel_map.end(); iter++) {
-    if (iter->second->plane_ptr_->is_plane_) {
+    if (iter->second->plane_ptr_->is_plane_) {//八叉树中的是平面
       OctoTree *current_octo = iter->second;
-      for (int i = 0; i < 6; i++) {
+      for (int i = 0; i < 6; i++) {//一个体素的相邻体素只有6个：前后、左右、上下
         VOXEL_LOC neighbor = iter->first;
         if (i == 0) {
           neighbor.x = neighbor.x + 1;
@@ -487,12 +506,12 @@ void STDescManager::build_connection(
         } else if (i == 5) {
           neighbor.z = neighbor.z - 1;
         }
-        auto near = voxel_map.find(neighbor);
-        if (near == voxel_map.end()) {
-          current_octo->is_check_connect_[i] = true;
-          current_octo->connect_[i] = false;
+        auto near = voxel_map.find(neighbor);//在体素地图中找相邻位置索引的体素的八叉树
+        if (near == voxel_map.end()) {//检查到边界
+          current_octo->is_check_connect_[i] = true;    //该八叉树的i方向的八叉树已经检查
+          current_octo->connect_[i] = false;            //该八叉树的i方向的相邻体素是否是同一平面
         } else {
-          if (!current_octo->is_check_connect_[i]) {
+          if (!current_octo->is_check_connect_[i]) {//该八叉树的该方向没有检查过
             OctoTree *near_octo = near->second;
             current_octo->is_check_connect_[i] = true;
             int j;
@@ -501,7 +520,7 @@ void STDescManager::build_connection(
             } else {
               j = i + 3;
             }
-            near_octo->is_check_connect_[j] = true;
+            near_octo->is_check_connect_[j] = true;   //curretn_octo的i方向相邻体素已经检查，则检查的相邻体素near_octo的相反j方向相邻体素也已经检查
             if (near_octo->plane_ptr_->is_plane_) {
               // merge near octo
               Eigen::Vector3d normal_diff = current_octo->plane_ptr_->normal_ -
@@ -509,13 +528,13 @@ void STDescManager::build_connection(
               Eigen::Vector3d normal_add = current_octo->plane_ptr_->normal_ +
                                            near_octo->plane_ptr_->normal_;
               if (normal_diff.norm() <
-                      config_setting_.plane_merge_normal_thre_ ||
+                      config_setting_.plane_merge_normal_thre_ ||   //0.1
                   normal_add.norm() <
                       config_setting_.plane_merge_normal_thre_) {
                 current_octo->connect_[i] = true;
-                near_octo->connect_[j] = true;
+                near_octo->connect_[j] = true;      //两个八叉树互为相同平面
                 current_octo->connect_tree_[i] = near_octo;
-                near_octo->connect_tree_[j] = current_octo;
+                near_octo->connect_tree_[j] = current_octo;   //两个八叉树互相链接
               } else {
                 current_octo->connect_[i] = false;
                 near_octo->connect_[j] = false;
@@ -523,7 +542,7 @@ void STDescManager::build_connection(
             } else {
               current_octo->connect_[i] = false;
               near_octo->connect_[j] = true;
-              near_octo->connect_tree_[j] = current_octo;
+              near_octo->connect_tree_[j] = current_octo;//？？？
             }
           }
         }
@@ -532,12 +551,17 @@ void STDescManager::build_connection(
   }
 }
 
+/**
+ * @brief 猜测：遍历所有体素对应的八叉树，记录所有有平面的八叉树的中心点坐标xyz和法向量在xyz的投影
+ * @param voxel_map
+ * @param plane_cloud
+ */
 void STDescManager::getPlane(
     const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
     pcl::PointCloud<pcl::PointXYZINormal>::Ptr &plane_cloud) {
   for (auto iter = voxel_map.begin(); iter != voxel_map.end(); iter++) {
     if (iter->second->plane_ptr_->is_plane_) {
-      pcl::PointXYZINormal pi;
+      pcl::PointXYZINormal pi;//保存平面的中心点坐标和法向量在xyz的分量
       pi.x = iter->second->plane_ptr_->center_[0];
       pi.y = iter->second->plane_ptr_->center_[1];
       pi.z = iter->second->plane_ptr_->center_[2];
@@ -548,7 +572,12 @@ void STDescManager::getPlane(
     }
   }
 }
-
+/**
+ * @brief 
+ * @param voxel_map
+ * @param input_cloud
+ * @param corner_points
+ */
 void STDescManager::corner_extractor(
     std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
     const pcl::PointCloud<pcl::PointXYZI>::Ptr &input_cloud,
@@ -557,7 +586,7 @@ void STDescManager::corner_extractor(
   pcl::PointCloud<pcl::PointXYZINormal>::Ptr prepare_corner_points(
       new pcl::PointCloud<pcl::PointXYZINormal>);
 
-  // Avoid inconsistent voxel cutting caused by different view point
+  // Avoid inconsistent voxel cutting caused by different view point    避免因视角不同而导致体素切割不一致
   std::vector<Eigen::Vector3i> voxel_round;
   for (int x = -1; x <= 1; x++) {
     for (int y = -1; y <= 1; y++) {
@@ -585,7 +614,7 @@ void STDescManager::corner_extractor(
             }
           }
           // if no plane near the voxel, skip
-          if (use == false) {
+          if (use == false) {//该体素的6个方向没有同一平面
             continue;
           }
           // only project voxels with points num > 10
@@ -596,7 +625,7 @@ void STDescManager::corner_extractor(
                 current_octo->connect_tree_[connect_index]->plane_ptr_->center_;
             std::vector<Eigen::Vector3d> proj_points;
             // proj the boundary voxel and nearby voxel onto adjacent plane
-            for (auto voxel_inc : voxel_round) {
+            for (auto voxel_inc : voxel_round) {    //9个(-1,-1,-1)(-1,-1,0)(-1,-1,1)……
               VOXEL_LOC connect_project_position = current_position;
               connect_project_position.x += voxel_inc[0];
               connect_project_position.y += voxel_inc[1];
@@ -1468,7 +1497,9 @@ void STDescManager::PlaneGeomrtricIcp(
   transform.second = rot;
   // std::cout << "useful match for icp:" << useful_match << std::endl;
 }
-
+/**
+ * @brief 初始化八叉树里的平面
+ */
 void OctoTree::init_plane() {
   plane_ptr_->covariance_ = Eigen::Matrix3d::Zero();
   plane_ptr_->center_ = Eigen::Vector3d::Zero();
@@ -1476,23 +1507,23 @@ void OctoTree::init_plane() {
   plane_ptr_->points_size_ = voxel_points_.size();
   plane_ptr_->radius_ = 0;
   for (auto pi : voxel_points_) {
-    plane_ptr_->covariance_ += pi * pi.transpose();
+    plane_ptr_->covariance_ += pi * pi.transpose();//Eigen::transpose()转置   得到一个对称矩阵
     plane_ptr_->center_ += pi;
   }
   plane_ptr_->center_ = plane_ptr_->center_ / plane_ptr_->points_size_;
   plane_ptr_->covariance_ =
-      plane_ptr_->covariance_ / plane_ptr_->points_size_ -
+      plane_ptr_->covariance_ / plane_ptr_->points_size_ -    //这行为止计算的是点云的协方差矩阵
       plane_ptr_->center_ * plane_ptr_->center_.transpose();
-  Eigen::EigenSolver<Eigen::Matrix3d> es(plane_ptr_->covariance_);
-  Eigen::Matrix3cd evecs = es.eigenvectors();
-  Eigen::Vector3cd evals = es.eigenvalues();
+  Eigen::EigenSolver<Eigen::Matrix3d> es(plane_ptr_->covariance_);    //EigenSolver是用来计算矩阵的特征值和特征向量的工具
+  Eigen::Matrix3cd evecs = es.eigenvectors();     //协方差矩阵的特征向量表示数据的变异方向
+  Eigen::Vector3cd evals = es.eigenvalues();      //协方差矩阵的特征值表示数据的变异程度    //矩阵的特征值是一个标量，表示当矩阵作用于某个特定的向量时，该向量只会被缩放而不改变方向
   Eigen::Vector3d evalsReal;
-  evalsReal = evals.real();
+  evalsReal = evals.real();                       //获取特征值的实部
   Eigen::Matrix3d::Index evalsMin, evalsMax;
-  evalsReal.rowwise().sum().minCoeff(&evalsMin);
-  evalsReal.rowwise().sum().maxCoeff(&evalsMax);
+  evalsReal.rowwise().sum().minCoeff(&evalsMin);  //evalsRead.rowwise().sum():计算evalsReal矩阵中每一行元素之和;.minCoeff(&evalsMin)找到这些行和中的最小值，并将其存储在evalsMin中。
+  evalsReal.rowwise().sum().maxCoeff(&evalsMax);  //在特征向量方向变异性最小的特征值
   int evalsMid = 3 - evalsMin - evalsMax;
-  if (evalsReal(evalsMin) < config_setting_.plane_detection_thre_) {
+  if (evalsReal(evalsMin) < config_setting_.plane_detection_thre_) {//0.01
     plane_ptr_->normal_ << evecs.real()(0, evalsMin), evecs.real()(1, evalsMin),
         evecs.real()(2, evalsMin);
     plane_ptr_->min_eigen_value_ = evalsReal(evalsMin);
@@ -1512,9 +1543,11 @@ void OctoTree::init_plane() {
     plane_ptr_->is_plane_ = false;
   }
 }
-
+/**
+ * @brief 初始化八叉树
+ */
 void OctoTree::init_octo_tree() {
-  if (voxel_points_.size() > config_setting_.voxel_init_num_) {
+  if (voxel_points_.size() > config_setting_.voxel_init_num_) {//10，一个体素中点数量大于10就初始化平面
     init_plane();
   }
 }
